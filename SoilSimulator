@@ -1,0 +1,121 @@
+using System.Collections.Generic;
+using System.IO;
+using UnityEngine;
+
+public class SoilSimulator : MonoBehaviour
+{
+    public string nomeFileJSON = "franchino_asparago.json";
+    public Terrain terrain;
+
+    public TerrainLayer layerBagnatoErboso;
+    public TerrainLayer layerMoltoUmido;
+    public TerrainLayer layerUmidoNormale;
+    public TerrainLayer layerTerraSecca;
+    public TerrainLayer layerSeccoEstremo;
+
+    private List<SensorData> sensori;
+
+    public void AggiornaSimulazione()
+    {
+        Debug.Log("Percorso persistente: " + Application.persistentDataPath);
+
+        string path = Path.Combine(Application.persistentDataPath, nomeFileJSON);
+
+        if (File.Exists(path))
+        {
+            string json = File.ReadAllText(path);
+            Debug.Log("[JSON caricato]: " + json);
+
+            var arraySensori = JsonHelper.FromJsonWithKey<SensorData>(json, "sensori");
+
+            if (arraySensori == null || arraySensori.Length == 0)
+            {
+                Debug.LogError("Errore: il JSON è stato caricato ma non contiene elementi validi.");
+                return;
+            }
+
+            sensori = new List<SensorData>(arraySensori);
+            SimulaSuolo();
+        }
+        else
+        {
+            Debug.LogError("File JSON non trovato: " + path);
+        }
+    }
+
+    void SimulaSuolo()
+    {
+        foreach (SensorData s in sensori)
+        {
+            string token = s.signal_token.ToLower();
+
+            if (token.Contains("pot"))
+                SimulaPotenzialeIdrico(s);
+            else if (token.Contains("temp"))
+                SimulaTemperatura(s);
+            else if (token.Contains("umid") || token.Contains("soilmoisture"))
+                SimulaUmiditaSuolo(s);
+            else if (token.Contains("drip") || token.Contains("gocciolatore"))
+                SimulaGocciolatore(s);
+            else if (token.Contains("cond"))
+                SimulaConducibilita(s);
+        }
+    }
+
+    void SimulaPotenzialeIdrico(SensorData s)
+    {
+        float valore = Mathf.Abs(s.valore);
+
+        if (valore < 20)
+            CambiaLayerTerreno(layerBagnatoErboso, s);
+        else if (valore < 60)
+            CambiaLayerTerreno(layerUmidoNormale, s);
+        else
+            CambiaLayerTerreno(layerSeccoEstremo, s);
+    }
+
+    void SimulaTemperatura(SensorData s)
+    {
+        if (s.valore < 10)
+            CambiaLayerTerreno(layerBagnatoErboso, s);
+        else if (s.valore < 25)
+            CambiaLayerTerreno(layerUmidoNormale, s);
+        else
+            CambiaLayerTerreno(layerTerraSecca, s);
+    }
+
+    void SimulaUmiditaSuolo(SensorData s)
+    {
+        if (s.valore < 30)
+            CambiaLayerTerreno(layerSeccoEstremo, s);
+        else if (s.valore < 70)
+            CambiaLayerTerreno(layerUmidoNormale, s);
+        else
+            CambiaLayerTerreno(layerMoltoUmido, s);
+    }
+
+    void SimulaGocciolatore(SensorData s)
+    {
+        if (s.valore > 0)
+            CambiaLayerTerreno(layerMoltoUmido, s);
+    }
+
+    void SimulaConducibilita(SensorData s)
+    {
+        if (s.valore > 2000)
+            CambiaLayerTerreno(layerTerraSecca, s);
+    }
+
+    void CambiaLayerTerreno(TerrainLayer nuovoLayer, SensorData s)
+    {
+        if (terrain != null && nuovoLayer != null)
+        {
+            terrain.terrainData.terrainLayers = new TerrainLayer[] { nuovoLayer };
+            Debug.Log($"Layer '{nuovoLayer.name}' applicato per il sensore '{s.description}' ({s.signal_token}) con valore {s.valore} {s.unit_readable}");
+        }
+        else
+        {
+            Debug.LogWarning("Terrain o TerrainLayer non assegnato.");
+        }
+    }
+}
